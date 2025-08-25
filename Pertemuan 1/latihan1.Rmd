@@ -1,0 +1,33 @@
+---
+title: "latihan1"
+author: "Muhammad Sabda Agama"
+date: "2025-08-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Library Penting
+
+# Manajemen data
+library(dplyr)      # manipulasi data
+library(tidyr)      # data tidying
+library(readr)      # membaca data csv/tsv
+library(openxlsx)   # membaca/menulis Excel
+
+# Visualisasi
+library(ggplot2)    # visualisasi
+library(GGally)     # matriks korelasi, scatterplot matrix
+
+# Statistik
+library(car)        # uji asumsi regresi
+library(lmtest)     # uji autokorelasi, heteroskedastisitas
+library(nortest)    # uji normalitas
+library(psych)      # analisis deskriptif
+library(MASS)       # regresi, model statistik klasik
+```
+
+```
