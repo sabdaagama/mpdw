@@ -1,0 +1,93 @@
+---
+title: "Latihan 2 MPDW"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(forecast)
+library(TTR)
+library(ggplot2)
+
+# Baca data
+data <- read_excel("~/JKSE_Close_Weekly.xlsx", sheet = "Sheet1")
+
+data_sub <- data[260:517, ]
+
+# Buat time series
+ts_data <- ts(data_sub$Close, frequency = 1)
+
+# Struktur data
+str(data_sub)
+summary(data_sub$Close)
+
+# Plot eksplorasi
+autoplot(ts_data) +
+  ggtitle("JKSE Weekly Close Price (Obs 260–517)") +
+  xlab("Index") + ylab("Harga Penutupan")
+
+# (a) SMA (window = 5)
+sma5 <- SMA(ts_data, n = 5)
+autoplot(ts_data, series="Actual") +
+  autolayer(sma5, series="SMA (5)", color="blue") +
+  ggtitle("Simple Moving Average (n=5)")
+
+# (b) SES
+ses_model <- ses(ts_data, h = 20)
+autoplot(ses_model) +
+  autolayer(fitted(ses_model), series="SES Fitted", color="red") +
+  ggtitle("Single Exponential Smoothing")
+
+# (c) Holt’s Linear Trend (DES)
+holt_model <- holt(ts_data, h = 20)
+autoplot(holt_model) +
+  autolayer(fitted(holt_model), series="Holt Fitted", color="green") +
+  ggtitle("Holt’s Linear Trend (Double Exponential Smoothing)")
+
+
+# Evaluasi Kinerja
+
+# Akurasi SES & Holt
+acc_ses  <- accuracy(ses_model)
+acc_holt <- accuracy(holt_model)
+
+# Akurasi SMA manual
+error_sma <- ts_data - sma5
+sse_sma <- sum(error_sma^2, na.rm = TRUE)
+mse_sma <- mean(error_sma^2, na.rm = TRUE)
+rmse_sma <- sqrt(mse_sma)
+mape_sma <- mean(abs(error_sma/ts_data), na.rm = TRUE) * 100
+
+# Gabungkan hasil ke tabel
+results <- data.frame(
+  Method = c("SMA (n=5)", "SES", "Holt"),
+  SSE    = c(sse_sma,
+             sum(residuals(ses_model)^2, na.rm=TRUE),
+             sum(residuals(holt_model)^2, na.rm=TRUE)),
+  MSE    = c(mse_sma,
+             mean(residuals(ses_model)^2, na.rm=TRUE),
+             mean(residuals(holt_model)^2, na.rm=TRUE)),
+  RMSE   = c(rmse_sma,
+             acc_ses["Training set","RMSE"],
+             acc_holt["Training set","RMSE"]),
+  MAPE   = c(mape_sma,
+             acc_ses["Training set","MAPE"],
+             acc_holt["Training set","MAPE"])
+)
+
+print(results)
+
+# ==========================================
+# 4. Menentukan Metode Terbaik
+# ==========================================
+best <- results[which.min(results$RMSE), ]
+cat("Metode terbaik adalah:", best$Method,
+    "dengan RMSE =", round(best$RMSE,2),
+    "dan MAPE =", round(best$MAPE,2), "%\n")
+```
+
+Berdasarkan hasil evaluasi, metode SMA (n=5) memiliki akurasi terendah (RMSE 100.55; MAPE 1.81%) karena pergerakannya terlalu kaku dalam mengikuti data, sedangkan SES menghasilkan nilai RMSE dan MAPE paling kecil (96.46; 1.63%) sehingga lebih baik dalam menangkap pola data, dan Holt memberikan hasil hampir sama dengan SES (RMSE 96.50; MAPE 1.63%) namun sedikit lebih tinggi; dengan demikian, metode terbaik untuk subset data JKSE Weekly (260–517) adalah SES (Single Exponential Smoothing) karena mampu memberikan peramalan paling akurat dibandingkan metode lainnya.
