@@ -1,0 +1,87 @@
+---
+title: "latihan kuliah"
+output: html_document
+---
+# Input Data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(ggplot2)
+library(lmtest)
+library(nlme)    
+
+
+data <- read_excel("~/IPM Berau.xlsx", sheet = "Sheet1")
+head(data)
+names(data)[2] <- "IPM_Berau"
+
+```
+
+# Regresi
+
+```{r}
+model_ols <- lm(IPM_Berau ~ Tahun, data = data)
+summary(model_ols)
+```
+
+Hasil regresi awal menunjukkan bahwa variabel tahun berpengaruh positif dan signifikan terhadap IPM Berau. Setiap kenaikan satu tahun diperkirakan meningkatkan nilai IPM sebesar sekitar 0,49 poin. Model ini mampu menjelaskan sekitar 97 persen variasi data, sehingga dapat dikatakan memiliki kemampuan prediksi yang sangat baik. Residual model relatif kecil, namun karena data berbentuk deret waktu, perlu dilakukan pemeriksaan lebih lanjut terhadap adanya autokorelasi pada residual.
+
+# Uji Autokorelasi
+
+```{r}
+# Residual plot
+resid_ols <- residuals(model_ols)
+plot(resid_ols, type="o", main="Residual OLS", ylab="Residual", xlab="Observasi")
+
+# ACF & PACF
+acf(resid_ols, main="ACF Residual")
+pacf(resid_ols, main="PACF Residual")
+
+# Durbin-Watson
+dwtest(model_ols)
+
+```
+
+Plot residual menunjukkan adanya pola yang tidak sepenuhnya acak, sehingga mengindikasikan kemungkinan adanya korelasi antar residual. Hasil ACF dan PACF memperlihatkan adanya korelasi pada lag awal meskipun tidak terlalu kuat, yang menandakan adanya gejala autokorelasi positif. Uji Durbin-Watson menghasilkan nilai 1,35 dengan p-value 0,047 yang signifikan pada taraf 5 persen, sehingga hipotesis nol tidak ada autokorelasi ditolak. Hal ini berarti model regresi awal mengalami masalah autokorelasi positif sehingga perlu dilakukan penanganan lebih lanjut
+
+# Penanganan Metode Cochrane-Orcutt
+
+```{r}
+y <- data$IPM_Berau
+x <- data$Tahun
+n <- length(y)
+
+# Estimasi rho
+rho_hat <- coef(lm(resid_ols[-1] ~ resid_ols[-n] + 0))
+rho_hat
+
+# Transformasi
+y_star <- y[-1] - rho_hat * y[-n]
+x_star <- x[-1] - rho_hat * x[-n]
+
+# Model transformasi
+model_co <- lm(y_star ~ x_star)
+summary(model_co)
+
+# Transformasi balik koefisien
+b1_hat <- coef(model_co)["x_star"]
+b0_star <- coef(model_co)["(Intercept)"]
+b0_hat <- b0_star / (1 - rho_hat)
+
+co_results <- c(Intercept = b0_hat, Slope = b1_hat, Rho = rho_hat)
+co_results
+```
+
+Model hasil transformasi menunjukkan bahwa koefisien tahun tetap positif dan signifikan dengan nilai sekitar 0,46, artinya setiap tahun IPM Berau meningkat rata-rata 0,46 poin. Intercept juga signifikan dengan nilai sekitar -844. Tingkat kesalahan residual menurun menjadi 0,27 dibanding model OLS awal yang sebesar 0,37, sementara nilai R² naik menjadi 0,976 yang menunjukkan model semakin baik dalam menjelaskan variasi data. Estimasi parameter autokorelasi rho sebesar 0,13 yang relatif kecil menunjukkan bahwa masalah autokorelasi tidak sepenuhnya hilang, tetapi sudah jauh berkurang dibandingkan model awal.
+
+# Penanganan Metode Hildreth–Lu
+
+```{r}
+hl_model <- gls(IPM_Berau ~ Tahun, data = data, correlation = corAR1())
+summary(hl_model)
+
+rho_hl <- coef(hl_model$modelStruct$corStruct, unconstrained=FALSE)
+rho_hl
+```
+
+Dengan metode Hildreth–Lu menggunakan pendekatan GLS, diperoleh nilai parameter autokorelasi (phi) sebesar 0,68. Nilai ini menunjukkan bahwa masih terdapat autokorelasi positif yang cukup kuat dalam model, sehingga masalah autokorelasi belum tertangani dengan baik. Koefisien regresi menunjukkan bahwa IPM Berau tetap meningkat signifikan sekitar 0,51 poin setiap tahun, namun kehadiran autokorelasi membuat efisiensi estimasi koefisien masih bermasalah. Pada metode Cochrane–Orcutt, estimasi parameter autokorelasi jauh lebih kecil yaitu sekitar 0,13. Hal ini berarti autokorelasi yang ada berhasil berkurang secara signifikan meskipun tidak hilang sepenuhnya. Selain itu, kesalahan residual model Cochrane–Orcutt lebih rendah dibandingkan dengan metode Hildreth–Lu, yang mengindikasikan perbaikan kualitas model. Secara umum, kedua metode tetap menunjukkan bahwa IPM Berau meningkat signifikan dari tahun ke tahun. Akan tetapi, metode Hildreth–Lu tidak berhasil mengatasi masalah autokorelasi karena nilai phi masih tinggi, sehingga autokorelasi tetap kuat dalam model. Sementara itu, metode Cochrane–Orcutt berhasil menurunkan autokorelasi hingga ke tingkat yang lebih rendah, walaupun tidak sepenuhnya menghilangkannya. Oleh karena itu, dalam kasus ini, metode Cochrane–Orcutt lebih baik dibandingkan Hildreth–Lu karena lebih efektif dalam memperbaiki masalah autokorelasi dan menghasilkan model yang lebih efisien.
