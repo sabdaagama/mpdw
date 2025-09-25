@@ -1,0 +1,183 @@
+---
+title: "Latihan Pertemuan 4"
+output: html_document
+---
+
+# PROSES MA(2)
+
+```{r}
+set.seed(1071)
+n <- 300
+theta1 <- 0.4
+theta2 <- 0.6
+sigma <- 1
+
+# Data MA(2) manual
+e <- rnorm(n + 2, sd = sigma)
+y_manual <- e[3:(n + 2)] + theta1 * e[2:(n + 1)] + theta2 * e[1:n]
+
+# Data MA(2) dengan arima.sim
+y_arima <- as.numeric(arima.sim(
+  model = list(ma = c(theta1, theta2)),
+  n = n,
+  sd = sigma,
+  n.start = 20
+))
+
+library(TSA)
+
+par(mfrow = c(2, 2))
+ts.plot(y_manual, main = "MA(2) Manual")
+acf(y_manual, main = "ACF Manual")
+pacf(y_manual, main = "PACF Manual")
+eacf(y_manual)
+
+par(mfrow = c(2, 2))
+ts.plot(y_arima, main = "MA(2) arima.sim")
+acf(y_arima, main = "ACF arima.sim")
+pacf(y_arima, main = "PACF arima.sim")
+eacf(y_arima)
+
+par(mfrow = c(1, 3))
+plot(y_manual[-n], y_manual[-1], main = "Yt vs Yt-1", pch = 20)
+plot(y_manual[-c(n-1,n)], y_manual[-c(1,2)], main = "Yt vs Yt-2", pch = 20)
+plot(y_manual[-c(n-2,n-1,n)], y_manual[-c(1,2,3)], main = "Yt vs Yt-3", pch = 20)
+
+acf_manual <- acf(y_manual, plot = FALSE)$acf[1:4]
+names(acf_manual) <- paste0("lag", 0:3)
+print(acf_manual)
+
+gamma0 <- sigma^2 * (1 + theta1^2 + theta2^2)
+gamma1 <- sigma^2 * (theta1 + theta1 * theta2)
+gamma2 <- sigma^2 * theta2
+rho_theory <- c(1, gamma1/gamma0, gamma2/gamma0, 0)
+names(rho_theory) <- paste0("lag", 0:3)
+print(rho_theory)
+```
+
+Hasil simulasi menunjukkan bahwa proses MA(2) yang dibangkitkan sudah stasioner. Ini terlihat dari grafik deret waktu yang berfluktuasi di sekitar rata-rata konstan tanpa tren maupun perubahan varians. Plot ACF memotong (cut-off) setelah lag 2, sesuai sifat teori MA(2), sedangkan PACF meredup secara bertahap (tail-off). Tabel EACF menampilkan pola segitiga nol yang menguatkan orde MA(2).
+
+Scatterplot Yₜ terhadap Yₜ₋₁ dan Yₜ₋₂ menunjukkan korelasi positif yang jelas, sementara Yₜ terhadap Yₜ₋₃ nyaris tak berkorelasi, sejalan dengan autokorelasi empiris: sekitar 0.33–0.36 pada lag 1–2 dan mendekati nol pada lag 3. Nilai teoritis (ρ₁≈0.42, ρ₂≈0.39, ρ₃=0) juga sejalan dengan hasil simulasi.
+
+# PROSES AR(2)
+
+```{r}
+set.seed(1071)
+n <- 300
+phi1 <- 0.5
+phi2 <- 0.2
+sigma <- 1
+
+# Data AR(2) manual
+e <- rnorm(n + 2, sd = sigma)
+y_manual <- numeric(n)
+y_manual[1:2] <- e[1:2]     # inisialisasi
+for (t in 3:n) {
+  y_manual[t] <- phi1 * y_manual[t - 1] + phi2 * y_manual[t - 2] + e[t]
+}
+
+# Data AR(2) dengan arima.sim
+y_arima <- as.numeric(arima.sim(
+  model = list(ar = c(phi1, phi2)),
+  n = n,
+  sd = sigma,
+  n.start = 50
+))
+
+library(TSA)
+
+par(mfrow = c(2, 2))
+ts.plot(y_manual, main = "AR(2) Manual")
+acf(y_manual, main = "ACF Manual")
+pacf(y_manual, main = "PACF Manual")
+eacf(y_manual)
+
+par(mfrow = c(2, 2))
+ts.plot(y_arima, main = "AR(2) arima.sim")
+acf(y_arima, main = "ACF arima.sim")
+pacf(y_arima, main = "PACF arima.sim")
+eacf(y_arima)
+
+par(mfrow = c(1, 3))
+plot(y_manual[-n], y_manual[-1], main = "Yt vs Yt-1", pch = 20)
+plot(y_manual[-c(n-1,n)], y_manual[-c(1,2)], main = "Yt vs Yt-2", pch = 20)
+plot(y_manual[-c(n-2,n-1,n)], y_manual[-c(1,2,3)], main = "Yt vs Yt-3", pch = 20)
+
+acf_manual <- acf(y_manual, plot = FALSE)$acf[1:6]
+names(acf_manual) <- paste0("lag", 0:5)
+print(acf_manual)
+
+# Autokorelasi teoritis AR(2) menggunakan persamaan Yule-Walker
+rho <- numeric(6)
+rho[1] <- 1
+rho[2] <- phi1 / (1 - phi2)
+rho[3] <- phi1 * rho[2] + phi2
+for (k in 4:6) rho[k] <- phi1 * rho[k - 1] + phi2 * rho[k - 2]
+names(rho) <- paste0("lag", 0:5)
+print(rho)
+```
+
+Deret waktu hasil simulasi AR(2) tampak berfluktuasi di sekitar rata-rata konstan tanpa tren atau perubahan varians, menandakan sifat stasioner. Plot ACF menurun perlahan secara eksponensial, sesuai ciri proses AR, sedangkan PACF terpotong jelas setelah lag ke-2, menegaskan orde AR(2). Nilai autokorelasi empiris menurun bertahap dari sekitar 0.63 di lag-1 menjadi 0.22 di lag-5, selaras dengan perhitungan teoritis. Scatterplot Yₜ terhadap Yₜ₋₁ dan Yₜ₋₂ menunjukkan hubungan positif kuat, sedangkan dengan Yₜ₋₃ korelasi melemah, mencerminkan bahwa ketergantungan utama memang pada dua lag pertama.
+
+# PROSES ARMA(2,2)
+
+```{r}
+set.seed(1071)
+n <- 300
+phi1 <- 0.5; phi2 <- 0.2
+theta1 <- 0.4; theta2 <- 0.6
+sigma <- 1
+
+#Data ARMA(2,2) manual
+e <- rnorm(n + 10, sd = sigma)  
+y <- numeric(n + 10)
+for (t in 3:(n + 10)) {
+  y[t] <- phi1 * y[t - 1] + phi2 * y[t - 2] +
+          e[t] + theta1 * e[t - 1] + theta2 * e[t - 2]
+}
+y_manual <- y[11:(n + 10)]
+
+# Data ARMA(2,2) dengan arima.sim
+y_arima <- as.numeric(arima.sim(
+  model = list(ar = c(phi1, phi2), ma = c(theta1, theta2)),
+  n = n,
+  sd = sigma,
+  n.start = 50
+))
+
+library(TSA)
+
+# Plot TS, ACF, PACF, EACF
+par(mfrow = c(2, 2))
+ts.plot(y_manual, main = "ARMA(2,2) Manual")
+acf(y_manual, main = "ACF Manual")
+pacf(y_manual, main = "PACF Manual")
+eacf(y_manual)
+
+par(mfrow = c(2, 2))
+ts.plot(y_arima, main = "ARMA(2,2) arima.sim")
+acf(y_arima, main = "ACF arima.sim")
+pacf(y_arima, main = "PACF arima.sim")
+eacf(y_arima)
+
+par(mfrow = c(1, 3))
+plot(y_manual[-n], y_manual[-1], main = "Yt vs Yt-1", pch = 20)
+plot(y_manual[-c(n-1,n)], y_manual[-c(1,2)], main = "Yt vs Yt-2", pch = 20)
+plot(y_manual[-c(n-2,n-1,n)], y_manual[-c(1,2,3)], main = "Yt vs Yt-3", pch = 20)
+
+# Autokorelasi empiris
+acf_manual <- acf(y_manual, plot = FALSE)$acf[1:6]
+names(acf_manual) <- paste0("lag", 0:5)
+print(acf_manual)
+
+# Autokorelasi teoritis
+rho <- numeric(6)
+rho[1] <- 1
+rho[2] <- phi1 / (1 - phi2)
+rho[3] <- phi1 * rho[2] + phi2
+for (k in 4:6) rho[k] <- phi1 * rho[k - 1] + phi2 * rho[k - 2]
+names(rho) <- paste0("lag", 0:5)
+print(rho)
+```
+
+Data hasil bangkitan ARMA(2,2) dengan parameter sebanyak 300 observasi menunjukkan pola time series yang berfluktuasi di sekitar nol tanpa tren, sehingga dapat dikatakan stasioner dalam mean.Plot ACF memperlihatkan penurunan bertahap (tailing off) sedangkan PACF signifikan sampai lag ke-2, sesuai karakteristik model ARMA(2,2). EACF mengindikasikan kombinasi AR(2) dan MA(2).Scatterplot antara dengan lag menunjukkan hubungan kuat pada lag-1, lebih lemah pada lag-2, dan semakin melemah pada lag-3, menegaskan adanya autokorelasi jangka pendek yang berangsur hilang. Nilai autokorelasi empiris dari data simulasi sejalan dengan autokorelasi teoritis (turun dari sekitar 0.81 di lag-1 hingga 0.14 di lag-5)
