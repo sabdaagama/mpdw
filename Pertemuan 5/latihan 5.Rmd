@@ -1,0 +1,93 @@
+---
+title: "latihan 5"
+output: html_document
+---
+
+
+```{r}
+# Paket yang dibutuhkan
+library("readxl")
+library("forecast")
+library("tseries")
+library("zoo")
+library("FinTS")
+library("ggplot2")
+
+# 1. Baca data & subset baris 261:517
+df <- read_excel("~/JKSE_Close_Weekly.xlsx")
+num_col <- which(sapply(df, is.numeric))[1]   # kolom numerik pertama
+series <- df[[num_col]][261:517]
+series <- na.approx(series)                   
+ts_data <- ts(series, frequency=52)
+
+# 2. Split train-test (80:20)
+n <- length(ts_data)
+train_n <- floor(0.8*n)
+train <- ts_data[1:train_n]
+test  <- ts_data[(train_n+1):n]
+```
+```{r}
+# Plot data time series
+plot(train, main = "Plot Data Time Series (Raw)", ylab = "Close Price", xlab = "Time")
+
+# Plot BoxCox lambda
+lambda <- BoxCox.lambda(train)
+boxcox <- BoxCox(train, lambda)
+plot.ts(boxcox, main = paste("Plot BoxCox (Lambda =", round(lambda, 3), ")"), ylab = "Transformed", xlab = "Time")
+```
+Plot data time series menunjukkan adanya tren meningkat pada harga penutupan seiring waktu. Selain itu, fluktuasi ragam tampak tidak konstan. Hal ini menandakan bahwa data belum stasioner baik dalam rataan maupun ragam.
+```{r}
+# Uji stasioneritas mean (ADF & KPSS)
+cat("\n=== Uji stasioneritas mean (train) ===\n")
+print(adf.test(train))
+print(kpss.test(train))
+```
+Hasil uji ADF pada data train menunjukkan p-value sebesar 0.2333 (>0.05)  Artinya data tidak stasioner dalam rataan. Hasil uji KPSS menghasilkan nilai statistik 3.4898 dengan p-value 0.01 (<0.05).  Menegaskan kembali bahwa data tidak stasioner dalam rataan.
+
+```{r}
+#  Uji stasioneritas variance (ARCH LM)
+cat("\n=== Uji stasioneritas ragam (train) ===\n")
+print(ArchTest(train, lags=12))
+```
+Hasil uji ARCH LM-test pada data train menghasilkan nilai Chi-squared = 184.68 dengan p-value < 2.2e-16. Karena p-value lebih kecil dari 0.05, maka dapat disimpulkan  bahwa data train tidak stasioner dalam ragam atau memiliki masalah heteroskedastisitas.
+
+```{r}
+# 5.transformasi log/Box-Cox
+if(min(train)>0){
+  lambda <- BoxCox.lambda(train)
+  train_trans <- BoxCox(train, lambda)
+  cat("Transformasi BoxCox dilakukan (lambda =", round(lambda,3), ")\n")
+} else {
+  train_trans <- train
+}
+```
+
+```{r}
+
+#  differencing
+d <- ndiffs(train_trans)
+cat("Jumlah differencing yang direkomendasikan:", d, "\n")
+if(d>0) train_final <- diff(train_trans, differences=d) else train_final <- train_trans
+
+# Tes ulang setelah transformasi
+cat("\n=== Setelah transformasi/differencing ===\n")
+print(adf.test(train_final))
+print(kpss.test(train_final))
+print(ArchTest(train_final, lags=12))
+```
+Setelah dilakukan transformasi Box-Cox dan differencing satu kali, hasil uji ADF menunjukkan nilai p-value = 0.01 (<0.05) artinya data sudah stasioner dalam rataan. Hasil uji KPSS mempertegas dengan nilai p-value = 0.1 (>0.05). Dengan demikian, kedua uji (ADF dan KPSS) konsisten menyimpulkan bahwa data setelah transformasi dan differencing sudah stabil di mean.
+Hasil ARCH LM-test menunjukkan p-value = 0.08179 (>0.05), sehingga tidak ada bukti signifikan adanya efek ARCH. Artinya, ragam data dapat dianggap sudah stasioner setelah dilakukan transformasi Box-Cox.
+
+```{r}
+plot(train_final, main = "Plot Data Setelah Transformasi & Differencing", ylab = "Transformed Series", xlab = "Time")
+```
+Plot setelah transformasi dan differencing menunjukkan data sudah berfluktuasi di sekitar nol tanpa tren yang jelas. Ragam terlihat lebih stabil dan homogen dibandingkan data awal
+```{r}
+
+# Plot ACF/PACF
+par(mfrow=c(2,1))
+acf(train_final, main="ACF train (setelah penanganan)")
+pacf(train_final, main="PACF train (setelah penanganan)")
+par(mfrow=c(1,1))
+```  
+Berdasarkan plot ACF dan PACF setelah dilakukan transformasi dan differencing, terlihat bahwa hampir seluruh lag berada dalam batas signifikansi. Hal ini menunjukkan bahwa pola autokorelasi telah hilang, sehingga data sudah bersifat stasioner baik dari sisi rata-rata maupun ragam.
