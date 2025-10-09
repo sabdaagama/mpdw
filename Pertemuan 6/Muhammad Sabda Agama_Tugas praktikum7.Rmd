@@ -1,0 +1,244 @@
+---
+title: "Muhammad Sabda Agama_Tugas praktikum7"
+output: html_document
+---
+
+
+```{r}
+# Paket 
+library("readxl")
+library("forecast")
+library("tseries")
+library("zoo")
+library("FinTS")
+library("ggplot2")
+
+# 1. Baca data & subset baris 261:517
+df <- read_excel("~/JKSE_Close_Weekly.xlsx")
+num_col <- which(sapply(df, is.numeric))[1]   # kolom numerik pertama
+series <- df[[num_col]][261:517]
+series <- na.approx(series)                   
+ts_data <- ts(series, frequency=52)
+
+# 2. Split train-test (80:20)
+n <- length(ts_data)
+train_n <- floor(0.8*n)
+train <- ts_data[1:train_n]
+test  <- ts_data[(train_n+1):n]
+```
+```{r}
+# Plot data time series
+plot(train, main = "Plot Data Time Series (Raw)", ylab = "Close Price", xlab = "Time")
+
+# Plot BoxCox lambda
+lambda <- BoxCox.lambda(train)
+boxcox <- BoxCox(train, lambda)
+plot.ts(boxcox, main = paste("Plot BoxCox (Lambda =", round(lambda, 3), ")"), ylab = "Transformed", xlab = "Time")
+```
+Plot data time series menunjukkan adanya tren meningkat pada harga penutupan seiring waktu. Selain itu, fluktuasi ragam tampak tidak konstan. Hal ini menandakan bahwa data belum stasioner baik dalam rataan maupun ragam.
+```{r}
+# Uji stasioneritas mean (ADF & KPSS)
+cat("\n=== Uji stasioneritas mean (train) ===\n")
+print(adf.test(train))
+print(kpss.test(train))
+```
+Hasil uji ADF pada data train menunjukkan p-value sebesar 0.2333 (>0.05)  Artinya data tidak stasioner dalam rataan. Hasil uji KPSS menghasilkan nilai statistik 3.4898 dengan p-value 0.01 (<0.05).  Menegaskan kembali bahwa data tidak stasioner dalam rataan.
+
+```{r}
+#  Uji stasioneritas variance (ARCH LM)
+cat("\n=== Uji stasioneritas ragam (train) ===\n")
+print(ArchTest(train, lags=12))
+```
+Hasil uji ARCH LM-test pada data train menghasilkan nilai Chi-squared = 184.68 dengan p-value < 2.2e-16. Karena p-value lebih kecil dari 0.05, maka dapat disimpulkan  bahwa data train tidak stasioner dalam ragam atau memiliki masalah heteroskedastisitas.
+
+```{r}
+# 5.transformasi log/Box-Cox
+if(min(train)>0){
+  lambda <- BoxCox.lambda(train)
+  train_trans <- BoxCox(train, lambda)
+  cat("Transformasi BoxCox dilakukan (lambda =", round(lambda,3), ")\n")
+} else {
+  train_trans <- train
+}
+```
+
+```{r}
+
+#  differencing
+d <- ndiffs(train_trans)
+cat("Jumlah differencing yang direkomendasikan:", d, "\n")
+if(d>0) train_final <- diff(train_trans, differences=d) else train_final <- train_trans
+
+# Tes ulang setelah transformasi
+cat("\n=== Setelah transformasi/differencing ===\n")
+print(adf.test(train_final))
+print(kpss.test(train_final))
+print(ArchTest(train_final, lags=12))
+```
+Setelah dilakukan transformasi Box-Cox dan differencing satu kali, hasil uji ADF menunjukkan nilai p-value = 0.01 (<0.05) artinya data sudah stasioner dalam rataan. Hasil uji KPSS mempertegas dengan nilai p-value = 0.1 (>0.05). Dengan demikian, kedua uji (ADF dan KPSS) konsisten menyimpulkan bahwa data setelah transformasi dan differencing sudah stabil di mean.
+Hasil ARCH LM-test menunjukkan p-value = 0.08179 (>0.05), sehingga tidak ada bukti signifikan adanya efek ARCH. Artinya, ragam data dapat dianggap sudah stasioner setelah dilakukan transformasi Box-Cox.
+
+```{r}
+plot(train_final, main = "Plot Data Setelah Transformasi & Differencing", ylab = "Transformed Series", xlab = "Time")
+```
+Plot setelah transformasi dan differencing menunjukkan data sudah berfluktuasi di sekitar nol tanpa tren yang jelas. Ragam terlihat lebih stabil dan homogen dibandingkan data awal
+```{r}
+
+# Plot ACF/PACF
+par(mfrow=c(2,1))
+acf(train_final, main="ACF train (setelah penanganan)")
+pacf(train_final, main="PACF train (setelah penanganan)")
+par(mfrow=c(1,1))
+```  
+Berdasarkan plot ACF dan PACF setelah dilakukan transformasi dan differencing, terlihat bahwa hampir seluruh lag berada dalam batas signifikansi. Hal ini menunjukkan bahwa pola autokorelasi telah hilang, sehingga data sudah bersifat stasioner baik dari sisi rata-rata maupun ragam.
+
+```{r}
+library(forecast)
+library(tseries)
+library(FinTS)
+library(ggplot2)
+
+if(!exists("train") & !exists("train_final")){
+  stop("Objek 'train' atau 'train_final' tidak ditemukan. Jalankan preprocessing terlebih dahulu.")
+}
+
+use_lambda <- exists("lambda") && !is.na(lambda)
+
+series_for_auto <- if(use_lambda && exists("train")) as.numeric(train) else as.numeric(if(exists("train_final")) train_final else train)
+
+# ----------------------------
+# 1. Pendugaan parameter ARIMA
+# ----------------------------
+cat("== 1. Pendugaan parameter ARIMA (auto.arima) ==\n")
+if(use_lambda){
+  cat("Menggunakan Box-Cox lambda =", round(lambda,3), "pada auto.arima.\n")
+  fit_auto <- auto.arima(series_for_auto, lambda = lambda, seasonal = FALSE,
+                         stepwise = FALSE, approximation = FALSE, trace = FALSE)
+} else {
+  fit_auto <- auto.arima(series_for_auto, seasonal = FALSE,
+                         stepwise = FALSE, approximation = FALSE, trace = FALSE, d = 0)
+}
+print(fit_auto)
+order_sel <- arimaorder(fit_auto)
+cat("Order terpilih (p,d,q):", paste(order_sel, collapse=","), "\n")
+
+# Fit final menggunakan order yang sama (agar mudah akses residual)
+if(use_lambda){
+  model1 <- Arima(as.numeric(train), order=order_sel, lambda = lambda, include.constant = TRUE)
+} else {
+  # pakai train_final jika tersedia (sudah didiff); jika order_sel$d>0 set d sesuai order_sel
+  if(exists("train_final") && order_sel[2]==0){
+    model1 <- Arima(as.numeric(train_final), order = c(order_sel[1], 0, order_sel[3]), include.constant = TRUE)
+  } else {
+    model1 <- Arima(as.numeric(train), order = order_sel, include.constant = TRUE)
+  }
+}
+cat("\nModel final fitted:\n")
+print(model1)
+```  
+Hasil pendugaan parameter menunjukkan bahwa model terbaik yang dipilih adalah ARIMA(1,1,0) dengan drift menggunakan transformasi Box-Cox (λ = -0.167). Nilai koefisien AR(1) sebesar -0.1291 dengan standar error 0.0694, sedangkan drift bernilai 0.0006 dengan standar error 0.0004, yang menunjukkan adanya sedikit kecenderungan naik pada data setelah dilakukan differencing. Nilai AIC = -1508.35, AICc = -1508.23, dan BIC = -1498.39 menandakan model memiliki kecocokan yang baik terhadap data.
+```{r}
+# 2. Uji asumsi residual
+cat("\n== 2. Uji asumsi residual ==\n")
+resid1 <- residuals(model1)
+
+# 2.1 ACF residual & plot
+tsdisplay(resid1, main="Residual diagnostics (resid1)")
+
+# 2.2 Ljung-Box (cek sisa autokorelasi)
+# gunakan fitdf = jumlah parameter diperkirakan (AR+MA+const)
+fitdf <- length(coef(model1))
+lb <- Box.test(resid1, lag = 20, type = "Ljung-Box", fitdf = fitdf)
+cat("Ljung-Box (lag=20) : statistic =", round(lb$statistic,3), ", p-value =", round(lb$p.value,4), "\n")
+
+# 2.3 Normalitas (Shapiro jika n kecil, else Jarque-Bera)
+if(length(resid1) <= 5000){
+  sh <- shapiro.test(resid1)
+  cat("Shapiro-Wilk p-value:", round(sh$p.value,4), "\n")
+} else {
+  jb <- tseries::jarque.bera.test(resid1)
+  cat("Jarque-Bera p-value:", round(jb$p.value,4), "\n")
+}
+
+# 2.4 ARCH effect on residuals
+arch_resid <- tryCatch(ArchTest(as.numeric(resid1), lags = 12), error = function(e) e)
+if(inherits(arch_resid, "htest")) {
+  print(arch_resid)
+} else cat("ARCH test error:", arch_resid$message, "\n")
+
+# 2.5 Visual residual checks
+par(mfrow=c(2,1))
+plot(resid1, main="Residuals", ylab="resid")
+hist(resid1, main="Histogram residuals", xlab="resid")
+par(mfrow=c(1,1))
+```
+Hasil diagnostik residual menunjukkan bahwa model ARIMA(1,1,0) sudah cukup baik. Berdasarkan plot residual, pola residual berfluktuasi di sekitar nol tanpa pola tertentu, menandakan tidak ada autokorelasi yang tersisa. Hal ini diperkuat oleh hasil uji Ljung-Box (p-value = 0.175) yang menunjukkan residual bersifat acak (tidak ada autokorelasi signifikan). Uji ARCH LM (p-value = 0.4622) juga menunjukkan tidak terdapat heteroskedastisitas pada residual. Meskipun uji Shapiro-Wilk menghasilkan p-value = 0, yang menandakan residual tidak sepenuhnya berdistribusi normal, kondisi ini masih dapat diterima untuk data time series karena asumsi utama yang lebih penting telah terpenuhi.
+
+```{r}
+# 3. Overfitting check
+#    (buat model overfit p+1,q+1 dan bandingkan AIC & BIC)
+cat("\n== 3. Overfitting check ==\n")
+
+p0 <- max(0, order_sel[1]); d0 <- order_sel[2]; q0 <- max(0, order_sel[3])
+
+# model overfit (ARIMA dengan p+1 dan q+1)
+model_overfit <- tryCatch(
+  Arima(as.numeric(if(use_lambda) train else if(exists("train_final")) train_final else train),
+        order = c(p0 + 1, d0, q0 + 1),
+        lambda = if(use_lambda) lambda else NULL,
+        include.constant = TRUE),
+  error = function(e) NULL
+)
+
+# Bandingkan AIC & BIC
+cat("AIC  model terpilih :", round(AIC(model1), 3), "\n")
+cat("BIC  model terpilih :", round(BIC(model1), 3), "\n")
+
+if (!is.null(model_overfit)) {
+  cat("AIC  model overfit  :", round(AIC(model_overfit), 3), "\n")
+  cat("BIC  model overfit  :", round(BIC(model_overfit), 3), "\n")
+  cat("Ljung-Box untuk residual model overfit:\n")
+  print(Box.test(residuals(model_overfit), lag = 20, type = "Ljung-Box",
+                 fitdf = length(coef(model_overfit))))
+  
+  cat("\nInterpretasi overfitting:\n")
+  cat("- Jika model overfit menghasilkan AIC/BIC lebih kecil dan residual tetap white noise, maka model overfit lebih baik.\n")
+  cat("- Jika AIC/BIC tidak jauh berbeda atau residual model overfit tidak lebih baik, gunakan model awal.\n")
+} else {
+  cat("Model overfit gagal diestimasi. Gunakan model awal.\n")
+}
+```
+Hasil uji overfitting menunjukkan bahwa model overfit memiliki nilai AIC (-1508.96) sedikit lebih kecil dibandingkan model terpilih (-1508.35), namun nilai BIC (-1492.37) justru lebih besar daripada model terpilih (-1498.39). Karena kriteria BIC lebih sensitif terhadap kompleksitas model, peningkatan BIC ini menunjukkan bahwa model overfit tidak memberikan peningkatan kinerja yang berarti dan justru menambah kompleksitas. Selain itu, hasil uji Ljung-Box (p-value = 0.1046) menunjukkan tidak adanya autokorelasi signifikan pada residual model overfit, namun perbedaan kinerja antar model sangat kecil. Dengan demikian, model ARIMA(1,1,0) tetap dianggap lebih efisien dan memadai dibanding model yang lebih kompleks.
+
+```{r}
+# ----------------------------
+# 4. Forecast & evaluasi (pakai model1)
+# ----------------------------
+cat("\n== 4. Forecast & evaluasi ==\n")
+
+h <- length(test)
+
+# pastikan test adalah objek time series
+test <- ts(as.numeric(test),
+           start = end(train)[1] + 1/frequency(train),
+           frequency = frequency(train))
+
+# Forecast
+fcast <- forecast(model1, h = h)
+
+# Plot hasil ramalan
+plot(fcast, main = "Forecast vs Test Data")
+lines(test, col = "red", lwd = 2)
+legend("topleft", legend = c("Forecast mean", "Test actual"),
+       col = c("black", "red"), lwd = c(1, 2))
+
+# Evaluasi akurasi
+acc <- accuracy(fcast, test)
+print(acc)
+cat("\nMAPE (test) =", round(acc["Test set", "MAPE"], 3), "%\n")
+cat("RMSE (test) =", round(acc["Test set", "RMSE"], 4), "\n")
+```
+
+Hasil peramalan menunjukkan bahwa model ARIMA(1,1,0) mampu mengikuti pola data aktual dengan cukup baik, meskipun pada beberapa titik ramalan sedikit berbeda dari nilai aktual. Nilai MAPE sebesar 7,11% menunjukkan tingkat kesalahan peramalan yang relatif kecil dan masih dalam kategori akurat untuk data deret waktu, sedangkan RMSE sebesar 483,19 mengindikasikan rata-rata deviasi prediksi terhadap nilai sebenarnya. Dari grafik, terlihat bahwa garis ramalan (biru) dan data aktual (merah) memiliki arah pergerakan yang serupa, meskipun terdapat penyimpangan di akhir periode uji.
+
+
